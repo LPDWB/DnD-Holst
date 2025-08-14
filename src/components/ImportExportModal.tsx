@@ -10,11 +10,13 @@ export function ImportExportModal({
   onClose,
   graph,
   onImport,
+  onImportAsNew,
 }: {
   open: boolean;
   onClose: () => void;
   graph: string;
   onImport: (data: { nodes: Node<CRTNodeData>[]; edges: Edge<CRTEdgeData>[] }) => void;
+  onImportAsNew?: (data: { nodes: Node<CRTNodeData>[]; edges: Edge<CRTEdgeData>[] }) => void;
 }) {
   const toast = useToast();
   const [tab, setTab] = useState<"export" | "import">("export");
@@ -38,17 +40,35 @@ export function ImportExportModal({
     } catch {}
   };
 
-  const handleImport = () => {
+  const parseText = () => {
     try {
       const parsed = JSON.parse(text);
       if (parsed.nodes && parsed.edges) {
-        onImport(parsed);
-        toast("Импорт выполнен");
-        onClose();
-        return;
+        return parsed as { nodes: Node<CRTNodeData>[]; edges: Edge<CRTEdgeData>[] };
       }
-      throw new Error("invalid");
-    } catch {
+    } catch {}
+    return null;
+  };
+
+  const handleImport = () => {
+    const parsed = parseText();
+    if (parsed) {
+      onImport(parsed);
+      toast("Импорт выполнен");
+      onClose();
+    } else {
+      setError("Некорректный JSON");
+      toast("Ошибка импорта");
+    }
+  };
+
+  const handleImportAsNew = () => {
+    const parsed = parseText();
+    if (parsed && onImportAsNew) {
+      onImportAsNew(parsed);
+      toast("Импорт выполнен");
+      onClose();
+    } else {
       setError("Некорректный JSON");
       toast("Ошибка импорта");
     }
@@ -95,7 +115,15 @@ export function ImportExportModal({
               className="h-64 w-full rounded border p-2 text-xs font-mono dark:border-neutral-700 dark:bg-neutral-950"
             />
             {error && <div className="mt-1 text-xs text-red-500">{error}</div>}
-            <div className="mt-2 flex justify-end">
+            <div className="mt-2 flex justify-end gap-2">
+              {onImportAsNew && (
+                <button
+                  onClick={handleImportAsNew}
+                  className="rounded border px-3 py-1 text-sm dark:border-neutral-700 dark:bg-neutral-800"
+                >
+                  Импортировать как новый
+                </button>
+              )}
               <button
                 onClick={handleImport}
                 className="rounded border px-3 py-1 text-sm dark:border-neutral-700 dark:bg-neutral-800"

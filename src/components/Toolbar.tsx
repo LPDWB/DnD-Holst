@@ -26,12 +26,14 @@ export function Toolbar({
   onClear,
   onOpenImportExport,
   onAutoLayout,
+  onDuplicateProject,
 }: {
   edgeKind: CRTEdgeKind;
   setEdgeKind: (k: CRTEdgeKind) => void;
   onClear: () => void;
   onOpenImportExport: () => void;
   onAutoLayout: () => void;
+  onDuplicateProject: () => void;
 }) {
   const handleDragStart = (e: React.DragEvent, category: CRTNodeCategory) => {
     e.dataTransfer.setData("application/reactflow", JSON.stringify({ category }));
@@ -78,6 +80,9 @@ export function Toolbar({
         </button>
         <button onClick={onOpenImportExport} className="col-span-2 rounded-xl border border-neutral-300 bg-white px-3 py-2 text-xs font-semibold shadow-sm hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-900 dark:hover:bg-neutral-800">
           Импорт/Экспорт
+        </button>
+        <button onClick={onDuplicateProject} className="col-span-2 rounded-xl border border-neutral-300 bg-white px-3 py-2 text-xs font-semibold shadow-sm hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-900 dark:hover:bg-neutral-800">
+          Дубликат проекта
         </button>
       </div>
 
