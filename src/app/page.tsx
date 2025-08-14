@@ -10,12 +10,8 @@ import ReactFlow, {
   MarkerType,
   useEdgesState,
   useNodesState,
-  Connection,
-  Edge,
-  Node,
-  OnConnect,
-  ReactFlowInstance,
 } from "reactflow";
+import type { Node, Edge, Connection, OnConnect, ReactFlowInstance } from "reactflow";
 import CrtNode from "@/components/nodes/CrtNode";
 import AndNode from "@/components/nodes/AndNode";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
@@ -27,7 +23,7 @@ import { useToast } from "@/components/Toast";
 import { ValidationPanel } from "@/components/ValidationPanel";
 import * as dagre from "dagre";
 
-type CRTNode = Node; // allow mixed node types
+type CRTNode = Node<CRTNodeData>;
 
 type Project = {
   id: string;
@@ -90,14 +86,16 @@ const createExampleData = () => {
 };
 
 export default function Page() {
-  type GraphNodeData = CRTNodeData | Record<string, never>;
-  const [nodes, setNodes, onNodesChange] = useNodesState<GraphNodeData>([]);
+  const [nodes, setNodes, onNodesChange] = useNodesState<CRTNodeData>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<CRTEdgeData>([]);
   const [rf, setRf] = useState<ReactFlowInstance | null>(null);
   const [edgeKind, setEdgeKind] = useState<CRTEdgeKind>("sufficiency");
-  const [selection, setSelection] = useState<{ nodes: Node[]; edges: Edge<CRTEdgeData>[] }>({ nodes: [], edges: [] });
+  const [selection, setSelection] = useState<{ nodes: CRTNode[]; edges: Edge<CRTEdgeData>[] }>({
+    nodes: [],
+    edges: [],
+  });
   const selectSingle = useCallback(
-    (sel: { node?: Node; edge?: Edge<CRTEdgeData> }) => {
+    (sel: { node?: CRTNode; edge?: Edge<CRTEdgeData> }) => {
       setSelection({ nodes: sel.node ? [sel.node] : [], edges: sel.edge ? [sel.edge] : [] });
     },
     []
@@ -116,7 +114,10 @@ export default function Page() {
 
   const graphJson = useMemo(() => JSON.stringify({ nodes, edges }, null, 2), [nodes, edges]);
 
-  const clipboard = useRef<{ nodes: Node[]; edges: Edge<CRTEdgeData>[] }>({ nodes: [], edges: [] });
+  const clipboard = useRef<{ nodes: CRTNode[]; edges: Edge<CRTEdgeData>[] }>({
+    nodes: [],
+    edges: [],
+  });
 
   // initial/load
   useEffect(() => {
@@ -216,7 +217,12 @@ export default function Page() {
       }
       const position = rf.screenToFlowPosition({ x: event.clientX, y: event.clientY });
       if (parsed.type === "and") {
-        const newNode: CRTNode = { id: nextId(), position, data: {}, type: "and" };
+        const newNode: CRTNode = {
+          id: nextId(),
+          position,
+          data: {} as CRTNodeData,
+          type: "and",
+        };
         setNodes((nds) => nds.concat(newNode));
       } else if (parsed.category) {
         const category: CRTNodeData["category"] = parsed.category;
@@ -233,9 +239,9 @@ export default function Page() {
   );
 
   const onNodeDragStart = useCallback(
-    (event: React.MouseEvent, node: Node) => {
+    (event: React.MouseEvent, node: CRTNode) => {
       if (event.altKey) {
-        const clone: Node = {
+        const clone: CRTNode = {
           ...node,
           id: nextId(),
           position: { x: node.position.x + 20, y: node.position.y + 20 },
@@ -251,7 +257,9 @@ export default function Page() {
     (id: string, data: Partial<CRTNodeData>) => {
       setNodes((nds) =>
         nds.map((n) =>
-          n.id === id && n.type === "crt" ? { ...n, data: { ...n.data, ...data } } : n
+          n.id === id
+            ? ({ ...n, data: { ...(n.data as CRTNodeData), ...data } } as CRTNode)
+            : n
         )
       );
     },
@@ -336,7 +344,7 @@ export default function Page() {
     (id: string) => {
       const original = nodes.find((n) => n.id === id);
       if (!original) return;
-      const clone: Node = {
+      const clone: CRTNode = {
         ...original,
         id: nextId(),
         position: { x: original.position.x + 40, y: original.position.y + 40 },
@@ -664,7 +672,7 @@ export default function Page() {
             onDrop={onDrop}
             onDragOver={onDragOver}
             onSelectionChange={(s) =>
-              setSelection({ nodes: s.nodes as Node[], edges: s.edges as Edge<CRTEdgeData>[] })
+              setSelection({ nodes: s.nodes as CRTNode[], edges: s.edges as Edge<CRTEdgeData>[] })
             }
             onNodeContextMenu={(e, n) => {
               e.preventDefault();

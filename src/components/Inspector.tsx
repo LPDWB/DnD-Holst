@@ -1,16 +1,16 @@
 "use client";
 import type { Edge, Node } from "reactflow";
 import type { CRTNodeData, CRTNodeCategory } from "./NodeView";
-import type { CRTEdgeData, CRTEdgeKind } from "./Toolbar";
+import type { CRTEdgeKind } from "./Toolbar";
 
 export function Inspector({
   selection,
   updateNode,
   updateEdge,
 }: {
-  selection: { node?: Node; edge?: Edge<CRTEdgeData> };
+  selection: { node?: Node<CRTNodeData>; edge?: Edge };
   updateNode: (id: string, data: Partial<CRTNodeData>) => void;
-  updateEdge: (id: string, patch: Partial<Edge<CRTEdgeData>>) => void;
+  updateEdge: (id: string, patch: Partial<Edge>) => void;
 }) {
   const node = selection.node;
   const edge = selection.edge;
