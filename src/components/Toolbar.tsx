@@ -9,6 +9,14 @@ const categoryStyle: Record<CRTNodeCategory, string> = {
   Note: "from-stone-500 to-neutral-600",
 };
 
+const categoryLabel: Record<CRTNodeCategory, string> = {
+  UDE: "Нежелательный эффект",
+  Cause: "Причина",
+  RootCause: "Корневая причина",
+  Injection: "Инъекция",
+  Note: "Заметка",
+};
+
 export type CRTEdgeKind = "sufficiency" | "assumption";
 export type CRTEdgeData = { kind: CRTEdgeKind };
 
@@ -16,15 +24,13 @@ export function Toolbar({
   edgeKind,
   setEdgeKind,
   onClear,
-  onExport,
-  onImport,
+  onOpenImportExport,
   onAutoLayout,
 }: {
   edgeKind: CRTEdgeKind;
   setEdgeKind: (k: CRTEdgeKind) => void;
   onClear: () => void;
-  onExport: () => void;
-  onImport: (file: File) => void;
+  onOpenImportExport: () => void;
   onAutoLayout: () => void;
 }) {
   const handleDragStart = (e: React.DragEvent, category: CRTNodeCategory) => {
@@ -46,7 +52,7 @@ export function Toolbar({
             className={`cursor-grab select-none rounded-xl bg-gradient-to-br ${categoryStyle[c]} p-2 text-center text-xs font-bold text-white shadow active:cursor-grabbing`}
             title="Перетащите на холст"
           >
-            {c}
+            {categoryLabel[c]}
           </div>
         ))}
       </div>
@@ -70,25 +76,13 @@ export function Toolbar({
         <button onClick={onClear} className="rounded-xl border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-600 shadow-sm hover:bg-red-50 dark:border-red-800/50 dark:bg-neutral-900 dark:hover:bg-neutral-800">
           Очистить
         </button>
-        <button onClick={onExport} className="rounded-xl border border-neutral-300 bg-white px-3 py-2 text-xs font-semibold shadow-sm hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-900 dark:hover:bg-neutral-800">
-          Экспорт JSON
+        <button onClick={onOpenImportExport} className="col-span-2 rounded-xl border border-neutral-300 bg-white px-3 py-2 text-xs font-semibold shadow-sm hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-900 dark:hover:bg-neutral-800">
+          Импорт/Экспорт
         </button>
-        <label className="inline-flex cursor-pointer items-center justify-center rounded-xl border border-neutral-300 bg-white px-3 py-2 text-xs font-semibold shadow-sm hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-900 dark:hover:bg-neutral-800">
-          Импорт JSON
-          <input
-            type="file"
-            accept="application/json"
-            className="hidden"
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f) onImport(f);
-            }}
-          />
-        </label>
       </div>
 
       <p className="mt-3 text-[10px] leading-tight text-neutral-500 dark:text-neutral-400">
-        Подсказка: перетащите тип узла на холст. Соединяйте узлы мышью. Delete — удалить выделенное, Ctrl/Cmd+S — сохранить локально.
+        Подсказка: перетщите тип узла на холст. Соединяйте узлы мышью. Delete — удалить выделенное, Ctrl/Cmd+S — сохранить локально. Ctrl/Cmd+O — импорт/экспорт, Ctrl/Cmd+E — копировать JSON.
       </p>
     </div>
   );

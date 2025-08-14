@@ -1,24 +1,33 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import ReactFlow, {
-  Background, Controls, MiniMap,
+  Background,
+  Controls,
+  MiniMap,
   BackgroundVariant,
-  addEdge, MarkerType,
-  useEdgesState, useNodesState,
-  Connection, Edge, Node, OnConnect, ReactFlowInstance,
+  addEdge,
+  MarkerType,
+  useEdgesState,
+  useNodesState,
+  Connection,
+  Edge,
+  Node,
+  OnConnect,
+  ReactFlowInstance,
 } from "reactflow";
 import CrtNode from "@/components/nodes/CrtNode";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import type { CRTNodeData } from "@/components/NodeView";
 import { Toolbar, CRTEdgeKind, CRTEdgeData } from "@/components/Toolbar";
 import { Inspector } from "@/components/Inspector";
+import { ImportExportModal } from "@/components/ImportExportModal";
+import { useToast } from "@/components/Toast";
 import * as dagre from "dagre";
 
 type CRTNode = Node<CRTNodeData>;
 
 const nodeTypes = { crt: CrtNode };
-
 
 let idSeq = 1;
 const nextId = () => `${Date.now().toString(36)}_${idSeq++}`;
@@ -29,6 +38,10 @@ export default function Page() {
   const [rf, setRf] = useState<ReactFlowInstance | null>(null);
   const [edgeKind, setEdgeKind] = useState<CRTEdgeKind>("sufficiency");
   const [selection, setSelection] = useState<{ node?: Node<CRTNodeData>; edge?: Edge<CRTEdgeData> }>({});
+  const [showIE, setShowIE] = useState(false);
+  const toast = useToast();
+
+  const graphJson = useMemo(() => JSON.stringify({ nodes, edges }, null, 2), [nodes, edges]);
 
   // initial/load
   useEffect(() => {
@@ -43,9 +56,24 @@ export default function Page() {
         } catch {}
       }
     } catch {}
-    const n1: CRTNode = { id: nextId(), position: { x: 80, y: 80 }, data: { title: "Нежелательный эффект (пример)", category: "UDE", confidence: 80, tags: ["мезонин","сборка"] }, type: "crt" };
-    const n2: CRTNode = { id: nextId(), position: { x: 420, y: 240 }, data: { title: "Причина (пример)", category: "Cause", confidence: 60 }, type: "crt" };
-    const n3: CRTNode = { id: nextId(), position: { x: 720, y: 420 }, data: { title: "Корневая причина (пример)", category: "RootCause", confidence: 70 }, type: "crt" };
+    const n1: CRTNode = {
+      id: nextId(),
+      position: { x: 80, y: 80 },
+      data: { title: "Нежелательный эффект (пример)", category: "UDE", confidence: 80, tags: ["мезонин", "сборка"] },
+      type: "crt",
+    };
+    const n2: CRTNode = {
+      id: nextId(),
+      position: { x: 420, y: 240 },
+      data: { title: "Причина (пример)", category: "Cause", confidence: 60 },
+      type: "crt",
+    };
+    const n3: CRTNode = {
+      id: nextId(),
+      position: { x: 720, y: 420 },
+      data: { title: "Корневая причина (пример)", category: "RootCause", confidence: 70 },
+      type: "crt",
+    };
     setNodes([n1, n2, n3]);
     setEdges([
       { id: nextId(), source: n2.id, target: n1.id, markerEnd: { type: MarkerType.ArrowClosed }, data: { kind: "sufficiency" } },
@@ -81,29 +109,38 @@ export default function Page() {
     event.dataTransfer.dropEffect = "move";
   }, []);
 
-  const onDrop = useCallback((event: React.DragEvent) => {
-    event.preventDefault();
-    if (!rf) return;
-    const payload = event.dataTransfer.getData("application/reactflow");
-    if (!payload) return;
-    let category: CRTNodeData["category"];
-    try {
-      ({ category } = JSON.parse(payload) as { category: CRTNodeData["category"] });
-    } catch {
-      return;
-    }
-    const position = rf.screenToFlowPosition({ x: event.clientX, y: event.clientY });
-    const newNode: CRTNode = { id: nextId(), position, data: { title: "Новый узел", category, confidence: 100 }, type: "crt" };
-    setNodes((nds) => nds.concat(newNode));
-  }, [rf, setNodes]);
+  const onDrop = useCallback(
+    (event: React.DragEvent) => {
+      event.preventDefault();
+      if (!rf) return;
+      const payload = event.dataTransfer.getData("application/reactflow");
+      if (!payload) return;
+      let category: CRTNodeData["category"];
+      try {
+        ({ category } = JSON.parse(payload) as { category: CRTNodeData["category"] });
+      } catch {
+        return;
+      }
+      const position = rf.screenToFlowPosition({ x: event.clientX, y: event.clientY });
+      const newNode: CRTNode = { id: nextId(), position, data: { title: "Новый узел", category, confidence: 100 }, type: "crt" };
+      setNodes((nds) => nds.concat(newNode));
+    },
+    [rf, setNodes]
+  );
 
-  const updateNode = useCallback((id: string, data: Partial<CRTNodeData>) => {
-    setNodes((nds) => nds.map((n) => (n.id === id ? { ...n, data: { ...n.data, ...data } } : n)));
-  }, [setNodes]);
+  const updateNode = useCallback(
+    (id: string, data: Partial<CRTNodeData>) => {
+      setNodes((nds) => nds.map((n) => (n.id === id ? { ...n, data: { ...n.data, ...data } } : n)));
+    },
+    [setNodes]
+  );
 
-  const updateEdge = useCallback((id: string, patch: Partial<Edge<CRTEdgeData>>) => {
-    setEdges((eds) => eds.map((e) => (e.id === id ? { ...e, ...patch } : e)));
-  }, [setEdges]);
+  const updateEdge = useCallback(
+    (id: string, patch: Partial<Edge<CRTEdgeData>>) => {
+      setEdges((eds) => eds.map((e) => (e.id === id ? { ...e, ...patch } : e)));
+    },
+    [setEdges]
+  );
 
   const onDeleteSelected = useCallback(() => {
     if (selection.node) {
@@ -126,43 +163,46 @@ export default function Page() {
       }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
         e.preventDefault();
-        const payload = JSON.stringify({ nodes, edges }, null, 2);
+        const payload = graphJson;
         const blob = new Blob([payload], { type: "application/json" });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
-        a.download = `crt_graph_${new Date().toISOString().slice(0,19).replace(/[:T]/g,"-")}.json`;
+        a.download = `crt_graph_${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.json`;
         a.click();
         URL.revokeObjectURL(url);
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "o") {
+        e.preventDefault();
+        setShowIE(true);
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "e") {
+        e.preventDefault();
+        navigator.clipboard.writeText(graphJson);
+        toast("Экспорт скопирован");
       }
     };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
-  }, [edges, nodes, onDeleteSelected, selection.edge, selection.node]);
+  }, [graphJson, onDeleteSelected, selection.edge, selection.node, toast]);
 
-  const onExport = useCallback(() => {
-    const payload = JSON.stringify({ nodes, edges }, null, 2);
-    const blob = new Blob([payload], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `crt_graph_${new Date().toISOString().slice(0,19).replace(/[:T]/g,"-")}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }, [edges, nodes]);
-
-  const onImport = useCallback(async (file: File) => {
-    const text = await file.text();
-    try {
-      const { nodes: n, edges: e } = JSON.parse(text);
-      setNodes(n); setEdges(e); setSelection({});
-    } catch {}
-  }, [setEdges, setNodes]);
+  const onImportData = useCallback(
+    ({ nodes: n, edges: e }: { nodes: CRTNode[]; edges: Edge<CRTEdgeData>[] }) => {
+      setNodes(n);
+      setEdges(e);
+      setSelection({});
+    },
+    [setEdges, setNodes]
+  );
 
   const onClear = useCallback(() => {
-    setNodes([]); setEdges([]); setSelection({});
+    if (!window.confirm("Точно очистить холст? Действие необратимо.")) return;
+    setNodes([]);
+    setEdges([]);
+    setSelection({});
     localStorage.removeItem("crt_graph_v1");
-  }, [setEdges, setNodes]);
+    toast("Очистка выполнена");
+  }, [setEdges, setNodes, toast]);
 
   const onAutoLayout = useCallback(() => {
     try {
@@ -175,7 +215,7 @@ export default function Page() {
       const next = nodes.map((n) => {
         const p = g.node(n.id);
         return { ...n, position: { x: p.x - 130, y: p.y - 60 } };
-      });
+        });
       setNodes(next);
     } catch (err) {
       console.warn("Dagre layout error:", err);
@@ -195,8 +235,7 @@ export default function Page() {
         edgeKind={edgeKind}
         setEdgeKind={setEdgeKind}
         onClear={onClear}
-        onExport={onExport}
-        onImport={onImport}
+        onOpenImportExport={() => setShowIE(true)}
         onAutoLayout={onAutoLayout}
       />
 
@@ -224,6 +263,8 @@ export default function Page() {
           </ReactFlow>
         </ErrorBoundary>
       </div>
+
+      <ImportExportModal open={showIE} onClose={() => setShowIE(false)} graph={graphJson} onImport={onImportData} />
     </div>
   );
 }
