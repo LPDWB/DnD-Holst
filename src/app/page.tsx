@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactFlow, {
   Background,
   Controls,
@@ -10,19 +10,17 @@ import ReactFlow, {
   MarkerType,
   useEdgesState,
   useNodesState,
-  Connection,
-  Edge,
-  Node,
-  OnConnect,
-  ReactFlowInstance,
 } from "reactflow";
+import type { Node, Edge, Connection, OnConnect, ReactFlowInstance } from "reactflow";
 import CrtNode from "@/components/nodes/CrtNode";
+import AndNode from "@/components/nodes/AndNode";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import type { CRTNodeData } from "@/components/NodeView";
 import { Toolbar, CRTEdgeKind, CRTEdgeData } from "@/components/Toolbar";
 import { Inspector } from "@/components/Inspector";
 import { ImportExportModal } from "@/components/ImportExportModal";
 import { useToast } from "@/components/Toast";
+import { ValidationPanel } from "@/components/ValidationPanel";
 import * as dagre from "dagre";
 
 type CRTNode = Node<CRTNodeData>;
@@ -37,7 +35,7 @@ type Project = {
 const LS_PROJECTS_KEY = "crt_projects_v1";
 const LS_ACTIVE_ID_KEY = "crt_active_project_v1";
 
-const nodeTypes = { crt: CrtNode };
+const nodeTypes = { crt: CrtNode, and: AndNode };
 
 let idSeq = 1;
 const nextId = () => `${Date.now().toString(36)}_${idSeq++}`;
@@ -92,7 +90,21 @@ export default function Page() {
   const [edges, setEdges, onEdgesChange] = useEdgesState<CRTEdgeData>([]);
   const [rf, setRf] = useState<ReactFlowInstance | null>(null);
   const [edgeKind, setEdgeKind] = useState<CRTEdgeKind>("sufficiency");
-  const [selection, setSelection] = useState<{ node?: Node<CRTNodeData>; edge?: Edge<CRTEdgeData> }>({});
+  const [selection, setSelection] = useState<{ nodes: CRTNode[]; edges: Edge<CRTEdgeData>[] }>({
+    nodes: [],
+    edges: [],
+  });
+  const selectSingle = useCallback(
+    (sel: { node?: CRTNode; edge?: Edge<CRTEdgeData> }) => {
+      setSelection({ nodes: sel.node ? [sel.node] : [], edges: sel.edge ? [sel.edge] : [] });
+    },
+    []
+  );
+  const [contextMenu, setContextMenu] = useState<
+    | { x: number; y: number; target: { type: "node" | "edge"; id: string } }
+    | null
+  >(null);
+  const [showValidation, setShowValidation] = useState(false);
   const [showIE, setShowIE] = useState(false);
   const toast = useToast();
   const [projects, setProjects] = useState<Project[]>([]);
@@ -101,6 +113,11 @@ export default function Page() {
   const [tempName, setTempName] = useState("");
 
   const graphJson = useMemo(() => JSON.stringify({ nodes, edges }, null, 2), [nodes, edges]);
+
+  const clipboard = useRef<{ nodes: CRTNode[]; edges: Edge<CRTEdgeData>[] }>({
+    nodes: [],
+    edges: [],
+  });
 
   // initial/load
   useEffect(() => {
@@ -192,22 +209,59 @@ export default function Page() {
       if (!rf) return;
       const payload = event.dataTransfer.getData("application/reactflow");
       if (!payload) return;
-      let category: CRTNodeData["category"];
+      let parsed: { type?: string; category?: CRTNodeData["category"] };
       try {
-        ({ category } = JSON.parse(payload) as { category: CRTNodeData["category"] });
+        parsed = JSON.parse(payload);
       } catch {
         return;
       }
       const position = rf.screenToFlowPosition({ x: event.clientX, y: event.clientY });
-      const newNode: CRTNode = { id: nextId(), position, data: { title: "Новый узел", category, confidence: 100 }, type: "crt" };
-      setNodes((nds) => nds.concat(newNode));
+      if (parsed.type === "and") {
+        const newNode: CRTNode = {
+          id: nextId(),
+          position,
+          data: {} as CRTNodeData,
+          type: "and",
+        };
+        setNodes((nds) => nds.concat(newNode));
+      } else if (parsed.category) {
+        const category: CRTNodeData["category"] = parsed.category;
+        const newNode: CRTNode = {
+          id: nextId(),
+          position,
+          data: { title: "Новый узел", category, confidence: 100 },
+          type: "crt",
+        };
+        setNodes((nds) => nds.concat(newNode));
+      }
     },
     [rf, setNodes]
   );
 
+  const onNodeDragStart = useCallback(
+    (event: React.MouseEvent, node: CRTNode) => {
+      if (event.altKey) {
+        const clone: CRTNode = {
+          ...node,
+          id: nextId(),
+          position: { x: node.position.x + 20, y: node.position.y + 20 },
+        };
+        setNodes((nds) => nds.concat(clone));
+        setSelection({ nodes: [clone], edges: [] });
+      }
+    },
+    [setNodes]
+  );
+
   const updateNode = useCallback(
     (id: string, data: Partial<CRTNodeData>) => {
-      setNodes((nds) => nds.map((n) => (n.id === id ? { ...n, data: { ...n.data, ...data } } : n)));
+      setNodes((nds) =>
+        nds.map((n) =>
+          n.id === id
+            ? ({ ...n, data: { ...(n.data as CRTNodeData), ...data } } as CRTNode)
+            : n
+        )
+      );
     },
     [setNodes]
   );
@@ -219,22 +273,118 @@ export default function Page() {
     [setEdges]
   );
 
+  const deleteNodes = useCallback(
+    (ids: string[]) => {
+      setNodes((nds) => nds.filter((n) => !ids.includes(n.id)));
+      setEdges((eds) => eds.filter((e) => !ids.includes(e.source) && !ids.includes(e.target)));
+    },
+    [setNodes, setEdges]
+  );
+
+  const deleteEdges = useCallback(
+    (ids: string[]) => {
+      setEdges((eds) => eds.filter((e) => !ids.includes(e.id)));
+    },
+    [setEdges]
+  );
+
   const onDeleteSelected = useCallback(() => {
-    if (selection.node) {
-      const nodeId = selection.node.id;
-      setNodes((nds) => nds.filter((n) => n.id !== nodeId));
-      setEdges((eds) => eds.filter((e) => e.source !== nodeId && e.target !== nodeId));
-      setSelection({});
-    } else if (selection.edge) {
-      const edgeId = selection.edge.id;
-      setEdges((eds) => eds.filter((e) => e.id !== edgeId));
-      setSelection({});
+    if (selection.nodes.length) {
+      deleteNodes(selection.nodes.map((n) => n.id));
     }
-  }, [selection, setEdges, setNodes]);
+    if (selection.edges.length) {
+      deleteEdges(selection.edges.map((e) => e.id));
+    }
+    setSelection({ nodes: [], edges: [] });
+  }, [deleteEdges, deleteNodes, selection.edges, selection.nodes]);
+
+  const alignSelected = useCallback(
+    (mode: "left" | "centerX" | "right" | "top" | "middle" | "bottom") => {
+      const ids = selection.nodes.map((n) => n.id);
+      const xs = selection.nodes.map((n) => n.position.x);
+      const ys = selection.nodes.map((n) => n.position.y);
+      const left = Math.min(...xs);
+      const right = Math.max(...xs);
+      const top = Math.min(...ys);
+      const bottom = Math.max(...ys);
+      const centerX = (left + right) / 2;
+      const centerY = (top + bottom) / 2;
+      setNodes((nds) =>
+        nds.map((n) => {
+          if (!ids.includes(n.id)) return n;
+          const pos = { ...n.position };
+          switch (mode) {
+            case "left":
+              pos.x = left;
+              break;
+            case "centerX":
+              pos.x = centerX;
+              break;
+            case "right":
+              pos.x = right;
+              break;
+            case "top":
+              pos.y = top;
+              break;
+            case "middle":
+              pos.y = centerY;
+              break;
+            case "bottom":
+              pos.y = bottom;
+              break;
+          }
+          return { ...n, position: pos };
+        })
+      );
+    },
+    [selection.nodes, setNodes]
+  );
+
+  const duplicateNode = useCallback(
+    (id: string) => {
+      const original = nodes.find((n) => n.id === id);
+      if (!original) return;
+      const clone: CRTNode = {
+        ...original,
+        id: nextId(),
+        position: { x: original.position.x + 40, y: original.position.y + 40 },
+      };
+      setNodes((nds) => nds.concat(clone));
+    },
+    [nodes, setNodes]
+  );
+
+  const changeType = useCallback(
+    (id: string) => {
+      const node = nodes.find((n) => n.id === id);
+      if (node && node.type === "crt") {
+        const next = window.prompt(
+          "Новый тип (UDE, Cause, RootCause, Injection, Note)",
+          (node.data as CRTNodeData).category
+        );
+        if (next) updateNode(id, { category: next as CRTNodeData["category"] });
+      }
+    },
+    [nodes, updateNode]
+  );
+
+  const quickTags = useCallback(
+    (id: string) => {
+      const node = nodes.find((n) => n.id === id);
+      if (node && node.type === "crt") {
+        const tags = window.prompt("Теги через запятую", (node.data as CRTNodeData).tags?.join(", ") ?? "");
+        if (tags !== null)
+          updateNode(id, {
+            tags: tags.split(",").map((t) => t.trim()).filter(Boolean),
+          });
+      }
+    },
+    [nodes, updateNode]
+  );
 
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
-      if ((e.key === "Backspace" || e.key === "Delete") && (selection.node || selection.edge)) {
+      if ((e.key === "Backspace" || e.key === "Delete") && (selection.nodes.length || selection.edges.length)) {
         e.preventDefault();
         onDeleteSelected();
       }
@@ -258,16 +408,51 @@ export default function Page() {
         navigator.clipboard.writeText(graphJson);
         toast("Экспорт скопирован");
       }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "c") {
+        e.preventDefault();
+        const ids = selection.nodes.map((n) => n.id);
+        clipboard.current = {
+          nodes: selection.nodes.map((n) => ({ ...n, data: JSON.parse(JSON.stringify(n.data)) })),
+          edges: edges
+            .filter((ed) => ids.includes(ed.source) && ids.includes(ed.target))
+            .map((ed) => ({ ...ed, data: JSON.parse(JSON.stringify(ed.data)) })),
+        };
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v") {
+        e.preventDefault();
+        const map = new Map<string, string>();
+        const newNodes = clipboard.current.nodes.map((n) => {
+          const id = nextId();
+          map.set(n.id, id);
+          return {
+            ...n,
+            id,
+            position: { x: n.position.x + 40, y: n.position.y + 40 },
+          };
+        });
+        const newEdges = clipboard.current.edges.map((e) => ({
+          ...e,
+          id: nextId(),
+          source: map.get(e.source) || e.source,
+          target: map.get(e.target) || e.target,
+        }));
+        if (newNodes.length) setNodes((nds) => nds.concat(newNodes));
+        if (newEdges.length) setEdges((eds) => eds.concat(newEdges));
+      }
+      if (!e.ctrlKey && !e.metaKey && e.key.toLowerCase() === "v") {
+        e.preventDefault();
+        setShowValidation((v) => !v);
+      }
     };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
-  }, [graphJson, onDeleteSelected, selection.edge, selection.node, toast]);
+  }, [edges, graphJson, onDeleteSelected, selection.edges, selection.nodes, setEdges, setNodes, toast]);
 
   const onImportData = useCallback(
     ({ nodes: n, edges: e }: { nodes: CRTNode[]; edges: Edge<CRTEdgeData>[] }) => {
       setNodes(n);
       setEdges(e);
-      setSelection({});
+      setSelection({ nodes: [], edges: [] });
     },
     [setEdges, setNodes]
   );
@@ -284,7 +469,7 @@ export default function Page() {
       setActiveProjectId(proj.id);
       setNodes(n);
       setEdges(e);
-      setSelection({});
+      setSelection({ nodes: [], edges: [] });
     },
     [projects.length, setEdges, setNodes]
   );
@@ -293,7 +478,7 @@ export default function Page() {
     if (!window.confirm("Точно очистить холст? Действие необратимо.")) return;
     setNodes([]);
     setEdges([]);
-    setSelection({});
+    setSelection({ nodes: [], edges: [] });
     toast("Очистка выполнена");
   }, [setEdges, setNodes, toast]);
 
@@ -321,7 +506,7 @@ export default function Page() {
     if (proj) {
       setNodes(proj.data.nodes);
       setEdges(proj.data.edges);
-      setSelection({});
+      setSelection({ nodes: [], edges: [] });
     }
   };
 
@@ -337,7 +522,7 @@ export default function Page() {
     setActiveProjectId(proj.id);
     setNodes(data.nodes);
     setEdges(data.edges);
-    setSelection({});
+    setSelection({ nodes: [], edges: [] });
   };
 
   const startRename = () => {
@@ -366,7 +551,7 @@ export default function Page() {
       setActiveProjectId(next.id);
       setNodes(next.data.nodes);
       setEdges(next.data.edges);
-      setSelection({});
+      setSelection({ nodes: [], edges: [] });
     }
   };
 
@@ -386,7 +571,7 @@ export default function Page() {
     setActiveProjectId(clone.id);
     setNodes(clone.data.nodes);
     setEdges(clone.data.edges);
-    setSelection({});
+    setSelection({ nodes: [], edges: [] });
   };
 
   return (
@@ -439,6 +624,16 @@ export default function Page() {
           </button>
         </div>
       </div>
+      {selection.nodes.length >= 2 && (
+        <div className="pointer-events-auto fixed top-12 left-1/2 z-40 flex -translate-x-1/2 gap-1 rounded-2xl border bg-white/80 px-3 py-1 text-xs shadow backdrop-blur-md dark:border-neutral-800 dark:bg-neutral-900/80">
+          <button onClick={() => alignSelected("left")} className="px-1">L</button>
+          <button onClick={() => alignSelected("centerX")} className="px-1">C</button>
+          <button onClick={() => alignSelected("right")} className="px-1">R</button>
+          <button onClick={() => alignSelected("top")} className="px-1">T</button>
+          <button onClick={() => alignSelected("middle")} className="px-1">M</button>
+          <button onClick={() => alignSelected("bottom")} className="px-1">B</button>
+        </div>
+      )}
 
       <Toolbar
         edgeKind={edgeKind}
@@ -449,7 +644,19 @@ export default function Page() {
         onDuplicateProject={handleDuplicateProject}
       />
 
-      <Inspector selection={selection} updateNode={updateNode} updateEdge={updateEdge} />
+      <Inspector
+        selection={{ node: selection.nodes[0], edge: selection.edges[0] }}
+        updateNode={updateNode}
+        updateEdge={updateEdge}
+      />
+      <ValidationPanel
+        open={showValidation}
+        setOpen={setShowValidation}
+        nodes={nodes}
+        edges={edges}
+        rf={rf}
+        setSelection={selectSingle}
+      />
 
       <div className="h-full w-full">
         <ErrorBoundary>
@@ -464,7 +671,22 @@ export default function Page() {
             fitView
             onDrop={onDrop}
             onDragOver={onDragOver}
-            onSelectionChange={(s) => setSelection({ node: s.nodes[0] as Node<CRTNodeData>, edge: s.edges[0] as Edge<CRTEdgeData> })}
+            onSelectionChange={(s) =>
+              setSelection({ nodes: s.nodes as CRTNode[], edges: s.edges as Edge<CRTEdgeData>[] })
+            }
+            onNodeContextMenu={(e, n) => {
+              e.preventDefault();
+              setContextMenu({ x: e.clientX, y: e.clientY, target: { type: "node", id: n.id } });
+            }}
+            onEdgeContextMenu={(e, ed) => {
+              e.preventDefault();
+              setContextMenu({ x: e.clientX, y: e.clientY, target: { type: "edge", id: ed.id } });
+            }}
+            onPaneClick={() => setContextMenu(null)}
+            onNodeDragStart={onNodeDragStart}
+            selectionOnDrag
+            snapToGrid
+            snapGrid={[20, 20]}
             proOptions={{ hideAttribution: true }}
           >
             <MiniMap zoomable pannable className="!bg-white/50 dark:!bg-neutral-950/60" />
@@ -481,6 +703,66 @@ export default function Page() {
         onImport={onImportData}
         onImportAsNew={onImportAsNew}
       />
+      {contextMenu && (
+        <div
+          className="fixed z-50 rounded-md border bg-white text-xs shadow dark:border-neutral-700 dark:bg-neutral-800"
+          style={{ top: contextMenu.y, left: contextMenu.x }}
+        >
+          <ul>
+            {contextMenu.target.type === "node" && (
+              <>
+                <li
+                  className="cursor-pointer px-2 py-1 hover:bg-neutral-100"
+                  onClick={() => {
+                    duplicateNode(contextMenu.target.id);
+                    setContextMenu(null);
+                  }}
+                >
+                  Дублировать
+                </li>
+                <li
+                  className="cursor-pointer px-2 py-1 hover:bg-neutral-100"
+                  onClick={() => {
+                    changeType(contextMenu.target.id);
+                    setContextMenu(null);
+                  }}
+                >
+                  Изменить тип
+                </li>
+                <li
+                  className="cursor-pointer px-2 py-1 hover:bg-neutral-100"
+                  onClick={() => {
+                    quickTags(contextMenu.target.id);
+                    setContextMenu(null);
+                  }}
+                >
+                  Быстрые теги
+                </li>
+                <li
+                  className="cursor-pointer px-2 py-1 hover:bg-neutral-100"
+                  onClick={() => {
+                    deleteNodes([contextMenu.target.id]);
+                    setContextMenu(null);
+                  }}
+                >
+                  Удалить
+                </li>
+              </>
+            )}
+            {contextMenu.target.type === "edge" && (
+              <li
+                className="cursor-pointer px-2 py-1 hover:bg-neutral-100"
+                onClick={() => {
+                  deleteEdges([contextMenu.target.id]);
+                  setContextMenu(null);
+                }}
+              >
+                Удалить
+              </li>
+            )}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }
