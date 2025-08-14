@@ -40,6 +40,11 @@ export function Toolbar({
     e.dataTransfer.effectAllowed = "move";
   };
 
+  const handleDragStartAnd = (e: React.DragEvent) => {
+    e.dataTransfer.setData("application/reactflow", JSON.stringify({ type: "and" }));
+    e.dataTransfer.effectAllowed = "move";
+  };
+
   return (
     <div className="fixed left-3 top-3 z-50 w-64 rounded-2xl border bg-white/80 p-3 shadow-xl backdrop-blur-md dark:bg-neutral-900/80 dark:border-neutral-800">
       <div className="mb-2 text-sm font-semibold uppercase text-neutral-600 dark:text-neutral-300">
@@ -57,6 +62,14 @@ export function Toolbar({
             {categoryLabel[c]}
           </div>
         ))}
+        <div
+          draggable
+          onDragStart={handleDragStartAnd}
+          className="cursor-grab select-none rounded-xl bg-neutral-900 p-2 text-center text-xs font-bold text-white shadow active:cursor-grabbing"
+          title="Перетащите на холст"
+        >
+          AND
+        </div>
       </div>
 
       <div className="mt-4 flex items-center justify-between gap-2">

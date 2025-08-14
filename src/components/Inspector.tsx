@@ -8,7 +8,7 @@ export function Inspector({
   updateNode,
   updateEdge,
 }: {
-  selection: { node?: Node<CRTNodeData>; edge?: Edge<CRTEdgeData> };
+  selection: { node?: Node; edge?: Edge<CRTEdgeData> };
   updateNode: (id: string, data: Partial<CRTNodeData>) => void;
   updateEdge: (id: string, patch: Partial<Edge<CRTEdgeData>>) => void;
 }) {
@@ -22,7 +22,7 @@ export function Inspector({
         <p className="text-xs text-neutral-500 dark:text-neutral-400">Ничего не выбрано. Кликните узел или связь.</p>
       )}
 
-      {node && (
+      {node && node.type === "crt" && (
         <div className="space-y-2">
           <div>
             <label className="block text-[11px] text-neutral-500">Заголовок</label>
@@ -93,7 +93,7 @@ export function Inspector({
             </select>
           </div>
           <div>
-            <label className="block text-[11px] text-neutral-500">Метка</label>
+            <label className="block text-[11px] text-neutral-500">Метка/вес</label>
             <input
               className="w-full rounded-lg border border-neutral-300 bg-white p-2 text-xs dark:border-neutral-700 dark:bg-neutral-900"
               value={edge.label?.toString() ?? ""}
@@ -101,6 +101,10 @@ export function Inspector({
             />
           </div>
         </div>
+      )}
+
+      {node && node.type === "and" && (
+        <p className="text-xs text-neutral-500 dark:text-neutral-400">Узел AND</p>
       )}
     </div>
   );
