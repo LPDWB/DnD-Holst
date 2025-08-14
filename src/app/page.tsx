@@ -8,12 +8,16 @@ import ReactFlow, {
   useEdgesState, useNodesState,
   Connection, Edge, Node, OnConnect, ReactFlowInstance,
 } from "reactflow";
-import { NodeView, CRTNodeData } from "@/components/NodeView";
+import CrtNode from "@/components/nodes/CrtNode";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
+import type { CRTNodeData } from "@/components/NodeView";
 import { Toolbar, CRTEdgeKind, CRTEdgeData } from "@/components/Toolbar";
 import { Inspector } from "@/components/Inspector";
 import * as dagre from "dagre";
 
 type CRTNode = Node<CRTNodeData>;
+
+const nodeTypes = { crt: CrtNode };
 
 
 let idSeq = 1;
@@ -28,18 +32,20 @@ export default function Page() {
 
   // initial/load
   useEffect(() => {
-    const saved = localStorage.getItem("crt_graph_v1");
-    if (saved) {
-      try {
-        const { nodes, edges } = JSON.parse(saved);
-        setNodes(nodes);
-        setEdges(edges);
-        return;
-      } catch {}
-    }
-    const n1: CRTNode = { id: nextId(), position: { x: 80, y: 80 }, data: { title: "Нежелательный эффект (пример)", category: "UDE", confidence: 80, tags: ["мезонин","сборка"] }, type: "default" };
-    const n2: CRTNode = { id: nextId(), position: { x: 420, y: 240 }, data: { title: "Причина (пример)", category: "Cause", confidence: 60 }, type: "default" };
-    const n3: CRTNode = { id: nextId(), position: { x: 720, y: 420 }, data: { title: "Корневая причина (пример)", category: "RootCause", confidence: 70 }, type: "default" };
+    try {
+      const saved = localStorage.getItem("crt_graph_v1");
+      if (saved) {
+        try {
+          const { nodes, edges } = JSON.parse(saved);
+          setNodes(nodes);
+          setEdges(edges);
+          return;
+        } catch {}
+      }
+    } catch {}
+    const n1: CRTNode = { id: nextId(), position: { x: 80, y: 80 }, data: { title: "Нежелательный эффект (пример)", category: "UDE", confidence: 80, tags: ["мезонин","сборка"] }, type: "crt" };
+    const n2: CRTNode = { id: nextId(), position: { x: 420, y: 240 }, data: { title: "Причина (пример)", category: "Cause", confidence: 60 }, type: "crt" };
+    const n3: CRTNode = { id: nextId(), position: { x: 720, y: 420 }, data: { title: "Корневая причина (пример)", category: "RootCause", confidence: 70 }, type: "crt" };
     setNodes([n1, n2, n3]);
     setEdges([
       { id: nextId(), source: n2.id, target: n1.id, markerEnd: { type: MarkerType.ArrowClosed }, data: { kind: "sufficiency" } },
@@ -49,7 +55,9 @@ export default function Page() {
 
   // persist
   useEffect(() => {
-    localStorage.setItem("crt_graph_v1", JSON.stringify({ nodes, edges }));
+    try {
+      localStorage.setItem("crt_graph_v1", JSON.stringify({ nodes, edges }));
+    } catch {}
   }, [nodes, edges]);
 
   const onConnect: OnConnect = useCallback(
@@ -76,12 +84,16 @@ export default function Page() {
   const onDrop = useCallback((event: React.DragEvent) => {
     event.preventDefault();
     if (!rf) return;
-    const bounds = (event.target as HTMLElement).getBoundingClientRect();
     const payload = event.dataTransfer.getData("application/reactflow");
     if (!payload) return;
-    const { category } = JSON.parse(payload) as { category: CRTNodeData["category"] };
-    const position = rf.project({ x: event.clientX - bounds.left, y: event.clientY - bounds.top });
-    const newNode: CRTNode = { id: nextId(), position, data: { title: "Новый узел", category, confidence: 100 }, type: "default" };
+    let category: CRTNodeData["category"];
+    try {
+      ({ category } = JSON.parse(payload) as { category: CRTNodeData["category"] });
+    } catch {
+      return;
+    }
+    const position = rf.screenToFlowPosition({ x: event.clientX, y: event.clientY });
+    const newNode: CRTNode = { id: nextId(), position, data: { title: "Новый узел", category, confidence: 100 }, type: "crt" };
     setNodes((nds) => nds.concat(newNode));
   }, [rf, setNodes]);
 
@@ -141,8 +153,10 @@ export default function Page() {
 
   const onImport = useCallback(async (file: File) => {
     const text = await file.text();
-    const { nodes: n, edges: e } = JSON.parse(text);
-    setNodes(n); setEdges(e); setSelection({});
+    try {
+      const { nodes: n, edges: e } = JSON.parse(text);
+      setNodes(n); setEdges(e); setSelection({});
+    } catch {}
   }, [setEdges, setNodes]);
 
   const onClear = useCallback(() => {
@@ -189,33 +203,26 @@ export default function Page() {
       <Inspector selection={selection} updateNode={updateNode} updateEdge={updateEdge} />
 
       <div className="h-full w-full">
-        <ReactFlow
-          nodes={nodes.map((n) => ({
-            ...n,
-            style: { borderRadius: 16, border: "1px solid rgba(0,0,0,0.08)", padding: 0, background: "transparent" },
-          }))}
-          edges={edges.map((e) => ({ ...e, markerEnd: { type: MarkerType.ArrowClosed }, animated: e.data?.kind === "assumption" }))}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          onConnect={onConnect}
-          onInit={setRf}
-          fitView
-          onDrop={onDrop}
-          onDragOver={onDragOver}
-          onSelectionChange={(s) => setSelection({ node: s.nodes[0] as Node<CRTNodeData>, edge: s.edges[0] as Edge<CRTEdgeData> })}
-          proOptions={{ hideAttribution: true }}
-        >
-          <MiniMap zoomable pannable className="!bg-white/50 dark:!bg-neutral-950/60" />
-          <Controls />
-          <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
-          {nodes.map((n) => (
-            <foreignObject key={`fo-${n.id}`} x={n.position.x} y={n.position.y} width={320} height={160}>
-              <div className="pointer-events-auto">
-                <NodeView data={n.data} />
-              </div>
-            </foreignObject>
-          ))}
-        </ReactFlow>
+        <ErrorBoundary>
+          <ReactFlow
+            nodeTypes={nodeTypes}
+            nodes={nodes}
+            edges={edges.map((e) => ({ ...e, animated: (e.data as CRTEdgeData | undefined)?.kind === "assumption" }))}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            onConnect={onConnect}
+            onInit={setRf}
+            fitView
+            onDrop={onDrop}
+            onDragOver={onDragOver}
+            onSelectionChange={(s) => setSelection({ node: s.nodes[0] as Node<CRTNodeData>, edge: s.edges[0] as Edge<CRTEdgeData> })}
+            proOptions={{ hideAttribution: true }}
+          >
+            <MiniMap zoomable pannable className="!bg-white/50 dark:!bg-neutral-950/60" />
+            <Controls />
+            <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
+          </ReactFlow>
+        </ErrorBoundary>
       </div>
     </div>
   );
