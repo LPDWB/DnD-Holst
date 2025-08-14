@@ -27,10 +27,65 @@ import * as dagre from "dagre";
 
 type CRTNode = Node<CRTNodeData>;
 
+type Project = {
+  id: string;
+  name: string;
+  updatedAt: number;
+  data: { nodes: CRTNode[]; edges: Edge<CRTEdgeData>[] };
+};
+
+const LS_PROJECTS_KEY = "crt_projects_v1";
+const LS_ACTIVE_ID_KEY = "crt_active_project_v1";
+
 const nodeTypes = { crt: CrtNode };
 
 let idSeq = 1;
 const nextId = () => `${Date.now().toString(36)}_${idSeq++}`;
+
+const createExampleData = () => {
+  const n1: CRTNode = {
+    id: nextId(),
+    position: { x: 80, y: 80 },
+    data: {
+      title: "Нежелательный эффект (пример)",
+      category: "UDE",
+      confidence: 80,
+      tags: ["мезонин", "сборка"],
+    },
+    type: "crt",
+  };
+  const n2: CRTNode = {
+    id: nextId(),
+    position: { x: 420, y: 240 },
+    data: { title: "Причина (пример)", category: "Cause", confidence: 60 },
+    type: "crt",
+  };
+  const n3: CRTNode = {
+    id: nextId(),
+    position: { x: 720, y: 420 },
+    data: { title: "Корневая причина (пример)", category: "RootCause", confidence: 70 },
+    type: "crt",
+  };
+  return {
+    nodes: [n1, n2, n3],
+    edges: [
+      {
+        id: nextId(),
+        source: n2.id,
+        target: n1.id,
+        markerEnd: { type: MarkerType.ArrowClosed },
+        data: { kind: "sufficiency" as CRTEdgeKind },
+      } as Edge<CRTEdgeData>,
+      {
+        id: nextId(),
+        source: n3.id,
+        target: n2.id,
+        markerEnd: { type: MarkerType.ArrowClosed },
+        data: { kind: "sufficiency" as CRTEdgeKind },
+      } as Edge<CRTEdgeData>,
+    ],
+  };
+};
 
 export default function Page() {
   const [nodes, setNodes, onNodesChange] = useNodesState<CRTNodeData>([]);
@@ -40,53 +95,75 @@ export default function Page() {
   const [selection, setSelection] = useState<{ node?: Node<CRTNodeData>; edge?: Edge<CRTEdgeData> }>({});
   const [showIE, setShowIE] = useState(false);
   const toast = useToast();
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
+  const [renaming, setRenaming] = useState(false);
+  const [tempName, setTempName] = useState("");
 
   const graphJson = useMemo(() => JSON.stringify({ nodes, edges }, null, 2), [nodes, edges]);
 
   // initial/load
   useEffect(() => {
     try {
-      const saved = localStorage.getItem("crt_graph_v1");
-      if (saved) {
+      const savedProjects = localStorage.getItem(LS_PROJECTS_KEY);
+      const savedActive = localStorage.getItem(LS_ACTIVE_ID_KEY);
+      if (savedProjects) {
+        const parsed = JSON.parse(savedProjects) as Project[];
+        setProjects(parsed);
+        const active = parsed.find((p) => p.id === savedActive)?.id || parsed[0]?.id;
+        if (active) {
+          setActiveProjectId(active);
+          const proj = parsed.find((p) => p.id === active);
+          if (proj) {
+            setNodes(proj.data.nodes);
+            setEdges(proj.data.edges);
+            return;
+          }
+        }
+      }
+      let initial = null;
+      const old = localStorage.getItem("crt_graph_v1");
+      if (old) {
         try {
-          const { nodes, edges } = JSON.parse(saved);
-          setNodes(nodes);
-          setEdges(edges);
-          return;
+          const parsed = JSON.parse(old);
+          if (parsed.nodes && parsed.edges) {
+            initial = parsed;
+          }
         } catch {}
       }
+      if (!initial) initial = createExampleData();
+      const defaultProject: Project = {
+        id: nextId(),
+        name: "Мой граф 1",
+        updatedAt: Date.now(),
+        data: initial,
+      };
+      setProjects([defaultProject]);
+      setActiveProjectId(defaultProject.id);
+      setNodes(initial.nodes);
+      setEdges(initial.edges);
     } catch {}
-    const n1: CRTNode = {
-      id: nextId(),
-      position: { x: 80, y: 80 },
-      data: { title: "Нежелательный эффект (пример)", category: "UDE", confidence: 80, tags: ["мезонин", "сборка"] },
-      type: "crt",
-    };
-    const n2: CRTNode = {
-      id: nextId(),
-      position: { x: 420, y: 240 },
-      data: { title: "Причина (пример)", category: "Cause", confidence: 60 },
-      type: "crt",
-    };
-    const n3: CRTNode = {
-      id: nextId(),
-      position: { x: 720, y: 420 },
-      data: { title: "Корневая причина (пример)", category: "RootCause", confidence: 70 },
-      type: "crt",
-    };
-    setNodes([n1, n2, n3]);
-    setEdges([
-      { id: nextId(), source: n2.id, target: n1.id, markerEnd: { type: MarkerType.ArrowClosed }, data: { kind: "sufficiency" } },
-      { id: nextId(), source: n3.id, target: n2.id, markerEnd: { type: MarkerType.ArrowClosed }, data: { kind: "sufficiency" } },
-    ]);
   }, [setEdges, setNodes]);
 
   // persist
   useEffect(() => {
     try {
-      localStorage.setItem("crt_graph_v1", JSON.stringify({ nodes, edges }));
+      localStorage.setItem(LS_PROJECTS_KEY, JSON.stringify(projects));
+      if (activeProjectId) localStorage.setItem(LS_ACTIVE_ID_KEY, activeProjectId);
     } catch {}
-  }, [nodes, edges]);
+  }, [projects, activeProjectId]);
+
+  // autosave
+  useEffect(() => {
+    if (!activeProjectId) return;
+    setProjects((ps) =>
+      ps.map((p) =>
+        p.id === activeProjectId
+          ? { ...p, data: { nodes, edges }, updatedAt: Date.now() }
+          : p
+      )
+    );
+  }, [nodes, edges, activeProjectId]);
 
   const onConnect: OnConnect = useCallback(
     (params: Connection) =>
@@ -195,12 +272,28 @@ export default function Page() {
     [setEdges, setNodes]
   );
 
+  const onImportAsNew = useCallback(
+    ({ nodes: n, edges: e }: { nodes: CRTNode[]; edges: Edge<CRTEdgeData>[] }) => {
+      const proj: Project = {
+        id: nextId(),
+        name: `Импорт ${projects.length + 1}`,
+        updatedAt: Date.now(),
+        data: { nodes: n, edges: e },
+      };
+      setProjects((ps) => ps.concat(proj));
+      setActiveProjectId(proj.id);
+      setNodes(n);
+      setEdges(e);
+      setSelection({});
+    },
+    [projects.length, setEdges, setNodes]
+  );
+
   const onClear = useCallback(() => {
     if (!window.confirm("Точно очистить холст? Действие необратимо.")) return;
     setNodes([]);
     setEdges([]);
     setSelection({});
-    localStorage.removeItem("crt_graph_v1");
     toast("Очистка выполнена");
   }, [setEdges, setNodes, toast]);
 
@@ -222,12 +315,128 @@ export default function Page() {
     }
   }, [edges, nodes, setNodes]);
 
+  const handleSelectProject = (id: string) => {
+    setActiveProjectId(id);
+    const proj = projects.find((p) => p.id === id);
+    if (proj) {
+      setNodes(proj.data.nodes);
+      setEdges(proj.data.edges);
+      setSelection({});
+    }
+  };
+
+  const handleNewProject = () => {
+    const data = createExampleData();
+    const proj: Project = {
+      id: nextId(),
+      name: `Мой граф ${projects.length + 1}`,
+      updatedAt: Date.now(),
+      data,
+    };
+    setProjects((ps) => ps.concat(proj));
+    setActiveProjectId(proj.id);
+    setNodes(data.nodes);
+    setEdges(data.edges);
+    setSelection({});
+  };
+
+  const startRename = () => {
+    const current = projects.find((p) => p.id === activeProjectId);
+    if (!current) return;
+    setTempName(current.name);
+    setRenaming(true);
+  };
+
+  const finishRename = () => {
+    if (!renaming || !activeProjectId) return;
+    setProjects((ps) => ps.map((p) => (p.id === activeProjectId ? { ...p, name: tempName } : p)));
+    setRenaming(false);
+  };
+
+  const handleDeleteProject = () => {
+    if (projects.length <= 1) {
+      window.alert("Нельзя удалить последний проект");
+      return;
+    }
+    if (!window.confirm("Удалить проект?")) return;
+    const newProjects = projects.filter((p) => p.id !== activeProjectId);
+    const next = newProjects[0];
+    setProjects(newProjects);
+    if (next) {
+      setActiveProjectId(next.id);
+      setNodes(next.data.nodes);
+      setEdges(next.data.edges);
+      setSelection({});
+    }
+  };
+
+  const handleDuplicateProject = () => {
+    const current = projects.find((p) => p.id === activeProjectId);
+    if (!current) return;
+    const clone: Project = {
+      id: nextId(),
+      name: `${current.name} копия`,
+      updatedAt: Date.now(),
+      data: {
+        nodes: JSON.parse(JSON.stringify(current.data.nodes)),
+        edges: JSON.parse(JSON.stringify(current.data.edges)),
+      },
+    };
+    setProjects((ps) => ps.concat(clone));
+    setActiveProjectId(clone.id);
+    setNodes(clone.data.nodes);
+    setEdges(clone.data.edges);
+    setSelection({});
+  };
+
   return (
     <div className="h-screen w-screen overflow-hidden bg-gradient-to-br from-neutral-50 to-neutral-200 dark:from-neutral-950 dark:to-neutral-900">
       <div className="pointer-events-none fixed inset-x-0 top-0 z-40 flex items-center justify-center py-3">
-        <div className="pointer-events-auto rounded-2xl border bg-white/70 px-4 py-2 text-sm font-semibold shadow backdrop-blur dark:border-neutral-800 dark:bg-neutral-900/70">
-          <span className="mr-2 text-neutral-700 dark:text-neutral-200">CRT Builder • MVP</span>
-          <span className="text-xs text-neutral-500 dark:text-neutral-400">перетаскивайте типы узлов слева, редактируйте справа</span>
+        <div className="pointer-events-auto flex items-center gap-2 rounded-2xl border bg-white/70 px-4 py-2 text-sm font-semibold shadow backdrop-blur dark:border-neutral-800 dark:bg-neutral-900/70">
+          {renaming ? (
+            <input
+              value={tempName}
+              onChange={(e) => setTempName(e.target.value)}
+              onBlur={finishRename}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") finishRename();
+                if (e.key === "Escape") setRenaming(false);
+              }}
+              className="rounded border px-1 text-sm dark:border-neutral-700 dark:bg-neutral-800"
+              autoFocus
+            />
+          ) : (
+            <select
+              value={activeProjectId ?? ""}
+              onChange={(e) => handleSelectProject(e.target.value)}
+              className="rounded border px-1 text-sm dark:border-neutral-700 dark:bg-neutral-800"
+            >
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          )}
+          <button
+            onClick={handleNewProject}
+            className="rounded border px-2 py-1 text-xs dark:border-neutral-700 dark:bg-neutral-800"
+          >
+            Новый
+          </button>
+          <button
+            onClick={startRename}
+            disabled={!activeProjectId}
+            className="rounded border px-2 py-1 text-xs dark:border-neutral-700 dark:bg-neutral-800 disabled:opacity-50"
+          >
+            Переименовать
+          </button>
+          <button
+            onClick={handleDeleteProject}
+            className="rounded border px-2 py-1 text-xs dark:border-neutral-700 dark:bg-neutral-800"
+          >
+            Удалить
+          </button>
         </div>
       </div>
 
@@ -237,6 +446,7 @@ export default function Page() {
         onClear={onClear}
         onOpenImportExport={() => setShowIE(true)}
         onAutoLayout={onAutoLayout}
+        onDuplicateProject={handleDuplicateProject}
       />
 
       <Inspector selection={selection} updateNode={updateNode} updateEdge={updateEdge} />
@@ -264,7 +474,13 @@ export default function Page() {
         </ErrorBoundary>
       </div>
 
-      <ImportExportModal open={showIE} onClose={() => setShowIE(false)} graph={graphJson} onImport={onImportData} />
+      <ImportExportModal
+        open={showIE}
+        onClose={() => setShowIE(false)}
+        graph={graphJson}
+        onImport={onImportData}
+        onImportAsNew={onImportAsNew}
+      />
     </div>
   );
 }
