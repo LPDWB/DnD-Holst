@@ -10,6 +10,7 @@ const categoryStyle: Record<CRTNodeCategory, string> = {
 };
 
 export type CRTEdgeKind = "sufficiency" | "assumption";
+export type CRTEdgeData = { kind: CRTEdgeKind };
 
 export function Toolbar({
   edgeKind,

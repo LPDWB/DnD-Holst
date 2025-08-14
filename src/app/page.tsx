@@ -3,16 +3,17 @@
 import { useCallback, useEffect, useState } from "react";
 import ReactFlow, {
   Background, Controls, MiniMap,
+  BackgroundVariant,
   addEdge, MarkerType,
   useEdgesState, useNodesState,
   Connection, Edge, Node, OnConnect, ReactFlowInstance,
 } from "reactflow";
 import { NodeView, CRTNodeData } from "@/components/NodeView";
-import { Toolbar, CRTEdgeKind } from "@/components/Toolbar";
+import { Toolbar, CRTEdgeKind, CRTEdgeData } from "@/components/Toolbar";
 import { Inspector } from "@/components/Inspector";
+import * as dagre from "dagre";
 
 type CRTNode = Node<CRTNodeData>;
-type CRTEdgeData = { kind: CRTEdgeKind };
 
 
 let idSeq = 1;
@@ -23,7 +24,7 @@ export default function Page() {
   const [edges, setEdges, onEdgesChange] = useEdgesState<CRTEdgeData>([]);
   const [rf, setRf] = useState<ReactFlowInstance | null>(null);
   const [edgeKind, setEdgeKind] = useState<CRTEdgeKind>("sufficiency");
-  const [selection, setSelection] = useState<{ node?: Node<CRTNodeData>; edge?: Edge }>({});
+  const [selection, setSelection] = useState<{ node?: Node<CRTNodeData>; edge?: Edge<CRTEdgeData> }>({});
 
   // initial/load
   useEffect(() => {
@@ -149,9 +150,8 @@ export default function Page() {
     localStorage.removeItem("crt_graph_v1");
   }, [setEdges, setNodes]);
 
-  const onAutoLayout = useCallback(async () => {
+  const onAutoLayout = useCallback(() => {
     try {
-      const dagre = await import("dagre");
       const g = new dagre.graphlib.Graph();
       g.setGraph({ rankdir: "TB", nodesep: 40, ranksep: 80 });
       g.setDefaultEdgeLabel(() => ({}));
@@ -164,7 +164,7 @@ export default function Page() {
       });
       setNodes(next);
     } catch (err) {
-      console.warn("Dagre not available:", err);
+      console.warn("Dagre layout error:", err);
     }
   }, [edges, nodes, setNodes]);
 
@@ -194,7 +194,7 @@ export default function Page() {
             ...n,
             style: { borderRadius: 16, border: "1px solid rgba(0,0,0,0.08)", padding: 0, background: "transparent" },
           }))}
-          edges={edges.map((e) => ({ ...e, markerEnd: { type: MarkerType.ArrowClosed }, animated: e.data.kind === "assumption" }))}
+          edges={edges.map((e) => ({ ...e, markerEnd: { type: MarkerType.ArrowClosed }, animated: e.data?.kind === "assumption" }))}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
@@ -207,7 +207,7 @@ export default function Page() {
         >
           <MiniMap zoomable pannable className="!bg-white/50 dark:!bg-neutral-950/60" />
           <Controls />
-          <Background variant="dots" gap={20} size={1} />
+          <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
           {nodes.map((n) => (
             <foreignObject key={`fo-${n.id}`} x={n.position.x} y={n.position.y} width={320} height={160}>
               <div className="pointer-events-auto">

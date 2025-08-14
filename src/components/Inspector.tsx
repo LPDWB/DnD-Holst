@@ -1,9 +1,7 @@
 "use client";
 import type { Edge, Node } from "reactflow";
 import type { CRTNodeData, CRTNodeCategory } from "./NodeView";
-import type { CRTEdgeKind } from "./Toolbar";
-
-type CRTEdgeData = { kind?: CRTEdgeKind };
+import type { CRTEdgeData, CRTEdgeKind } from "./Toolbar";
 
 export function Inspector({
   selection,
